@@ -1,0 +1,8 @@
+Struct Name,Size in .h (bytes),Size in .cs (bytes),Notes
+SimpleStruct,14,17,not equal
+ArrayStruct,30,30,
+Point,8,8,
+Rectangle,16,16,
+ComplexStruct,35,35,
+CppOnlyStruct,14,N/A,incomplete pair
+CSharpOnlyStruct,N/A,8,incomplete pair
