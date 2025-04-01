@@ -4,7 +4,6 @@ using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Text.RegularExpressions;
 
 namespace StructSizeComparer
 {
@@ -106,6 +105,7 @@ namespace StructSizeComparer
             Console.WriteLine($"Parsing C++ header file: {filePath}");
             
             var structSizes = new Dictionary<string, int>();
+            var constants = new Dictionary<string, int>(); // Track defined constants
             
             if (!File.Exists(filePath))
             {
@@ -116,11 +116,58 @@ namespace StructSizeComparer
             string[] lines = File.ReadAllLines(filePath);
             
             string currentStructName = null;
-            int? structSize = null;
+            List<string> currentStructMembers = null;
+            Dictionary<string, int> nestedStructSizes = new Dictionary<string, int>();
 
             for (int i = 0; i < lines.Length; i++)
             {
                 string line = lines[i].Trim();
+
+                // Skip comments and empty lines
+                if (line.StartsWith("//") || string.IsNullOrWhiteSpace(line))
+                {
+                    continue;
+                }
+
+                // Look for constants (macros or global constants)
+                if (line.StartsWith("#define "))
+                {
+                    string[] parts = line.Substring("#define ".Length).Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length >= 2 && int.TryParse(parts[1], out int value))
+                    {
+                        constants[parts[0]] = value;
+                        Console.WriteLine($"  Found constant: {parts[0]} = {value}");
+                    }
+                }
+                else if (line.Contains("const ") && line.Contains("="))
+                {
+                    int equalPos = line.IndexOf('=');
+                    if (equalPos > 0)
+                    {
+                        string beforeEqual = line.Substring(0, equalPos).Trim();
+                        string afterEqual = line.Substring(equalPos + 1).Trim();
+                        
+                        // Extract constant name
+                        string[] parts = beforeEqual.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                        if (parts.Length >= 2)
+                        {
+                            string constName = parts[parts.Length - 1];
+                            
+                            // Try to parse value
+                            string valueStr = afterEqual;
+                            if (valueStr.EndsWith(";"))
+                            {
+                                valueStr = valueStr.Substring(0, valueStr.Length - 1);
+                            }
+                            
+                            if (int.TryParse(valueStr, out int value))
+                            {
+                                constants[constName] = value;
+                                Console.WriteLine($"  Found constant: {constName} = {value}");
+                            }
+                        }
+                    }
+                }
 
                 // Check for struct declaration
                 if (line.StartsWith("struct ") && !line.EndsWith(";"))
@@ -134,36 +181,165 @@ namespace StructSizeComparer
                         {
                             currentStructName = currentStructName.Substring(0, currentStructName.Length - 1).Trim();
                         }
+                        currentStructMembers = new List<string>();
                     }
                 }
-                // Check for struct end and size comment
-                else if (line.StartsWith("};") && currentStructName != null)
+                // Collect struct members
+                else if (currentStructName != null && !line.StartsWith("}") && !line.StartsWith("struct "))
                 {
-                    // Extract size from comment if available
-                    if (line.Contains("Total:") && line.Contains("bytes"))
+                    // Remove inline comments
+                    int commentIndex = line.IndexOf("//");
+                    if (commentIndex > 0)
                     {
-                        string sizeText = line.Substring(line.IndexOf("Total:") + 6);
-                        sizeText = sizeText.Substring(0, sizeText.IndexOf("bytes")).Trim();
-                        if (int.TryParse(sizeText, out int size))
-                        {
-                            structSize = size;
-                        }
+                        line = line.Substring(0, commentIndex).Trim();
                     }
-
-                    // Add the struct to the dictionary if we have both name and size
-                    if (currentStructName != null && structSize.HasValue)
+                    
+                    // Add valid members (skip preprocessor directives, empty lines, etc.)
+                    if (line.EndsWith(";") && !line.StartsWith("#"))
                     {
-                        structSizes[currentStructName] = structSize.Value;
-                        Console.WriteLine($"  Found C++ struct: {currentStructName}, Size: {structSize.Value} bytes");
+                        currentStructMembers.Add(line);
                     }
-
+                }
+                // Check for struct end
+                else if (line.StartsWith("};") && currentStructName != null && currentStructMembers != null)
+                {
+                    // Calculate struct size from its members
+                    int structSize = CalculateStructSize(currentStructName, currentStructMembers, nestedStructSizes, constants);
+                    structSizes[currentStructName] = structSize;
+                    
+                    // Save this struct's size for potential nested struct references
+                    nestedStructSizes[currentStructName] = structSize;
+                    
+                    Console.WriteLine($"  Found C++ struct: {currentStructName}, Calculated Size: {structSize} bytes");
+                    
                     // Reset for next struct
                     currentStructName = null;
-                    structSize = null;
+                    currentStructMembers = null;
                 }
             }
 
             return structSizes;
+        }
+
+        static int CalculateStructSize(string structName, List<string> members, Dictionary<string, int> knownStructSizes, Dictionary<string, int> constants)
+        {
+            int totalSize = 0;
+
+            foreach (string member in members)
+            {
+                string trimmedMember = member.Trim().TrimEnd(';');
+                
+                // Handle array declarations: Type name[size];
+                if (trimmedMember.Contains("[") && trimmedMember.Contains("]"))
+                {
+                    // Get position of opening and closing brackets
+                    int openBracketPos = trimmedMember.IndexOf('[');
+                    int closeBracketPos = trimmedMember.IndexOf(']');
+                    
+                    if (openBracketPos > 0 && closeBracketPos > openBracketPos)
+                    {
+                        // Extract the parts: type name[size]
+                        string beforeBracket = trimmedMember.Substring(0, openBracketPos).Trim();
+                        string arraySizeName = trimmedMember.Substring(openBracketPos + 1, closeBracketPos - openBracketPos - 1).Trim();
+                        
+                        // Split the beforeBracket to get type and variable name
+                        string[] parts = beforeBracket.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                        if (parts.Length >= 1)
+                        {
+                            string typeName = parts[0];
+                            int typeSize = GetCppTypeSize(typeName, knownStructSizes);
+                            int arraySize = 1; // Default size
+                            
+                            // Try to parse array size directly
+                            if (int.TryParse(arraySizeName, out int directSize))
+                            {
+                                arraySize = directSize;
+                            }
+                            // Check if it's a named constant
+                            else if (constants.TryGetValue(arraySizeName, out int constSize))
+                            {
+                                arraySize = constSize;
+                                Console.WriteLine($"  Using constant {arraySizeName} = {constSize} for array size");
+                            }
+                            else
+                            {
+                                // Could not determine size
+                                Console.WriteLine($"  Warning: Could not determine size for array '{arraySizeName}', assuming size 1");
+                            }
+                            
+                            totalSize += typeSize * arraySize;
+                        }
+                    }
+                }
+                // Handle regular declarations: Type name;
+                else
+                {
+                    string[] parts = trimmedMember.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length >= 2)
+                    {
+                        string typeName = parts[0];
+                        
+                        // Check if the type is a previously defined struct
+                        int typeSize = GetCppTypeSize(typeName, knownStructSizes);
+                        totalSize += typeSize;
+                    }
+                }
+            }
+            
+            return totalSize;
+        }
+
+        static int GetCppTypeSize(string typeName, Dictionary<string, int> knownStructSizes)
+        {
+            // Check for known structs first
+            if (knownStructSizes.TryGetValue(typeName, out int structSize))
+            {
+                Console.WriteLine($"  Using size {structSize} for struct type {typeName}");
+                return structSize;
+            }
+            
+            // Common C++ primitive type sizes
+            switch (typeName.ToLower())
+            {
+                // Integer types
+                case "bool": 
+                case "uint8_t":
+                case "int8_t":
+                case "char": 
+                case "byte": return 1;
+                
+                case "short": 
+                case "int16_t": 
+                case "unsigned short":
+                case "uint16_t": return 2;
+                
+                case "int": 
+                case "int32_t":
+                case "unsigned":
+                case "unsigned int":
+                case "uint32_t": return 4;
+                
+                case "long": return 4; // 32-bit on Windows
+                
+                case "long long":
+                case "int64_t":
+                case "unsigned long long":
+                case "uint64_t": return 8;
+                
+                // Floating point types
+                case "float": return 4;
+                case "double": return 8;
+                case "long double": return 8;
+                
+                // Pointer types (assuming 64-bit architecture)
+                default:
+                    if (typeName.EndsWith("*"))
+                        return 8; // 64-bit pointer
+                    
+                    // For unknown types, log a warning and assume 4 bytes
+                    Console.WriteLine($"Warning: Unknown type '{typeName}', assuming 4 bytes");
+                    return 4;
+            }
         }
 
         static Dictionary<string, int> GetCSharpStructSizes()

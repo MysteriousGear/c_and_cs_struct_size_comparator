@@ -3,7 +3,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "StructSizeComparer", "StructSizeComparer.csproj", "{F587CE54-FB93-4577-90B0-6977646C617F}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "StructSizeComparer", "StructSizeComparer.csproj", "{F1C8DB76-CED9-407E-94E5-702E1882E43F}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -14,9 +14,9 @@ Global
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{F587CE54-FB93-4577-90B0-6977646C617F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{F587CE54-FB93-4577-90B0-6977646C617F}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{F587CE54-FB93-4577-90B0-6977646C617F}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{F587CE54-FB93-4577-90B0-6977646C617F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F1C8DB76-CED9-407E-94E5-702E1882E43F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F1C8DB76-CED9-407E-94E5-702E1882E43F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F1C8DB76-CED9-407E-94E5-702E1882E43F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F1C8DB76-CED9-407E-94E5-702E1882E43F}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
